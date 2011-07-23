@@ -1,0 +1,349 @@
+﻿<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<!-- saved from url=(0066)http://www.codeproject.com/script/Articles/ViewHtml.aspx?aid=33528 -->
+<HTML xmlns="http://www.w3.org/1999/xhtml"><HEAD><TITLE>CodeProject: Article HTML. Free source code and programming help</TITLE>
+<META http-equiv=Content-Type content="text/html; charset=utf-8"><LINK 
+href="EnumComparer/CodeProject.css" 
+type=text/css rel=stylesheet>
+<META content="MSHTML 6.00.6000.16809" name=GENERATOR></HEAD>
+<BODY><!--  HTML for article "Accelerating Enum-Based Dictionaries with Generic EnumComparer" by Omer Mor\nURL: http://www.codeproject.com/KB/cs/EnumComparer.aspx
+Copyright 2009 by Omer Mor\nAll formatting, additions and  alterations Copyright © CodeProject, 1999-2009 -->
+<P><B>Please choose 'View Source' in your browser to view the HTML, or File | 
+Save to save this file to your hard drive for editing.</B></P>
+<HR class="Divider subdue">
+
+<DIV><SPAN id=ArticleContent>
+<UL class=download>
+  <LI><A 
+  href="EnumComparer/EnumComparer.zip">Download 
+  source - 505.93 KB</A> </LI></UL>
+<H2>Introduction</H2>
+<P>In this article, I'll introduce a very fast generic <CODE>EnumComparer 
+</CODE>class that implements <CODE>IEqualityComparer</CODE>. This class is 
+useful for accelerating dictionaries with <CODE>Enum </CODE>keys. In my tests, 
+it run roughly x8 faster.</P>
+<H2>Background</H2>
+<P>Generic collections were introduced in .NET 2.0 and improved upon regular 
+collections in 2 main aspects:</P>
+<OL>
+  <LI>Type safety 
+  <LI>Performance for value-type elements </LI></OL>
+<P>Regular collections treated value-types as <CODE>System.Object </CODE>and 
+this caused lots of boxing &amp; unboxing operations. Generic collections 
+eliminated the boxing and improved performance.</P>
+<P>Since <CODE>Enum</CODE>s are value-types, you'd expect them to benefit from 
+this improvement as well, and most of the time you'll be correct. However, when 
+an <CODE>Enum </CODE>is used as a key of a generic <CODE>Dictionary 
+</CODE>boxing returns from the back door.</P>
+<P>I was surprised when I first learned of this little-known fact. Vojislav 
+Stojkovic researched and described it in his article: <A 
+href="http://beardseye.blogspot.com/2007/08/nuts-enum-conundrum.html">.NUTS: 
+Enum Conundrum</A>. I strongly recommend that you read it.</P>
+<P>To sum up his conclusions: <CODE>Dictionary </CODE>requires an equality 
+implementation to determine whether keys are equal, and the default 
+implementation for types that does not implement <CODE>IEquatable </CODE>uses 
+the overrides of <CODE>Object.Equals </CODE>and <CODE>Object.GetHashCode</CODE>. 
+Since <CODE>Enum</CODE>s do not implement <CODE>IEquatable</CODE>, they'll be 
+casted to <CODE>object </CODE>(boxing) in order to compare them.</P>
+<P>However we don't have to use the default implementation: The <CODE>Dictionary 
+</CODE>class can accept an <CODE>IEqualityComparer </CODE>instance in its 
+constructor. All we have to do is supply an <CODE>IEqualityComparer </CODE>for 
+our <CODE>Enum </CODE>and the boxing will go away. And this is exactly what 
+Vojislav did. However this solution requires you to write your implementation of 
+<CODE>IEqualityComparer </CODE>for each <CODE>enum </CODE>type you intend to use 
+as a <CODE>dictionary </CODE>key.</P>
+<P>Wouldn't it be nice if we could leverage the power of generics to write once 
+a generic <CODE>EnumComparer </CODE>that will work for <CODE>Enum</CODE>s? It 
+would - but it ain't gonna be easy.</P>
+<H2>First Attempt</H2>
+<P>Let's begin by writing something like this:</P><PRE lang=cs>    // WON'T COMPILE
+    class EnumComparer&lt;TEnum&gt; : IEqualityComparer&lt;TEnum&gt;
+    {
+        public bool Equals(TEnum x, TEnum y)
+        {
+            // error CS0019: Operator '==' 
+            // cannot be applied to operands of type 'TEnum' and 'TEnum'
+            return (x == y);
+        }
+        public int GetHashCode(TEnum obj)
+        {
+            // error CS0030: Cannot convert type 'TEnum' to 'int'
+            return (int)obj;
+        }
+    }</PRE>
+<P>As Vojislav found out, this is not going to work.</P>
+<P>Or is it?</P>
+<P>Another .NET 2.0 feature is a lightweight version of 
+<CODE>Reflection.Emit</CODE>. With it, we can generate methods at runtime. This 
+is useful because it'll let us bypass the constraints of generics. In a way, 
+it's like C++ class template specialization: we'll generate a specialized method 
+for each generic type at runtime. The only downside for this feature is that you 
+need to write the code you generate in IL. A good primer on the subject (called 
+<CODE>DynamicMethod </CODE>or Lightweight Code Generation/LCG) can be found <A 
+title="Generic Dynamic Methods Primer" 
+href="http://www.codeproject.com/KB/cs/GenericDynamicMethods.aspx">here</A>. 
+</P>
+<P>So how is it used? Let's see.</P>
+<H2>Second Attempt</H2>
+<P>We're going to generate 2 methods at runtime: one for the <CODE>Equals 
+</CODE>implementation, and the other for the <CODE>GetHashCode 
+</CODE>implementation. The implementations that we'll generate are exactly the 
+same as the ones in our first attempt, only this time we'll be able to bypass 
+the compiler errors as they're not relevant at runtime.</P>
+<P>So without further ado, here's the code:</P>
+<PRE lang=cs>
+    /// &lt;summary&gt;
+    /// A fast and efficient implementation of &lt;see cref=&quot;IEqualityComparer{T}&quot;/&gt; for Enum types.
+    /// Useful for dictionaries that use Enums as their keys.
+    /// &lt;/summary&gt;
+    /// &lt;example&gt;
+    /// &lt;code&gt;
+    /// var dict = new Dictionary&amp;lt;DayOfWeek, string&amp;gt;(EnumComparer&amp;lt;DayOfWeek&amp;gt;.Instance);
+    /// &lt;/code&gt;
+    /// &lt;/example&gt;
+    /// &lt;typeparam name=&quot;TEnum&quot;&gt;The type of the Enum.&lt;/typeparam&gt;
+    public sealed class EnumComparer&lt;TEnum&gt; : IEqualityComparer&lt;TEnum&gt;
+        where TEnum : struct, IComparable, IConvertible, IFormattable
+    {
+        private static readonly Func&lt;TEnum, TEnum, bool&gt; equals;
+        private static readonly Func&lt;TEnum, int&gt; getHashCode;
+
+        /// &lt;summary&gt;
+        /// The singleton accessor.
+        /// &lt;/summary&gt;
+        public static readonly EnumComparer&lt;TEnum&gt; Instance;
+
+        /// &lt;summary&gt;
+        /// Initializes the &lt;see cref=&quot;EnumComparer{TEnum}&quot;/&gt; class
+        /// by generating the GetHashCode and Equals methods.
+        /// &lt;/summary&gt;
+        static EnumComparer()
+        {
+            getHashCode = generateGetHashCode();
+            equals = generateEquals();
+            Instance = new EnumComparer&lt;TEnum&gt;();
+        }
+
+        /// &lt;summary&gt;
+        /// A private constructor to prevent user instantiation.
+        /// &lt;/summary&gt;
+        private EnumComparer()
+        {
+            assertTypeIsEnum();
+            assertUnderlyingTypeIsSupported();
+        }
+
+        /// &lt;summary&gt;
+        /// Determines whether the specified objects are equal.
+        /// &lt;/summary&gt;
+        /// &lt;param name=&quot;x&quot;&gt;The first object of type &lt;typeparamref name=&quot;TEnum&quot;/&gt; to compare.&lt;/param&gt;
+        /// &lt;param name=&quot;y&quot;&gt;The second object of type &lt;typeparamref name=&quot;TEnum&quot;/&gt; to compare.&lt;/param&gt;
+        /// &lt;returns&gt;
+        /// true if the specified objects are equal; otherwise, false.
+        /// &lt;/returns&gt;
+        public bool Equals(TEnum x, TEnum y)
+        {
+            // call the generated method
+            return equals(x, y);
+        }
+
+        /// &lt;summary&gt;
+        /// Returns a hash code for the specified object.
+        /// &lt;/summary&gt;
+        /// &lt;param name=&quot;obj&quot;&gt;The &lt;see cref=&quot;T:System.Object&quot;/&gt; for which a hash code is to be returned.&lt;/param&gt;
+        /// &lt;returns&gt;A hash code for the specified object.&lt;/returns&gt;
+        /// &lt;exception cref=&quot;T:System.ArgumentNullException&quot;&gt;
+        /// The type of &lt;paramref name=&quot;obj&quot;/&gt; is a reference type and &lt;paramref name=&quot;obj&quot;/&gt; is null.
+        /// &lt;/exception&gt;
+        public int GetHashCode(TEnum obj)
+        {
+            // call the generated method
+            return getHashCode(obj);
+        }
+
+        private static void assertTypeIsEnum()
+        {
+            if (typeof (TEnum).IsEnum)
+                return;
+
+            var message =
+                string.Format(&quot;The type parameter {0} is not an Enum. LcgEnumComparer supports Enums only.&quot;,
+                              typeof (TEnum));
+            throw new NotSupportedException(message);
+        }
+
+        private static void assertUnderlyingTypeIsSupported()
+        {
+            var underlyingType = Enum.GetUnderlyingType(typeof (TEnum));
+            ICollection&lt;Type&gt; supportedTypes =
+                new[]
+                    {
+                        typeof (byte), typeof (sbyte), typeof (short), typeof (ushort),
+                        typeof (int), typeof (uint), typeof (long), typeof (ulong)
+                    };
+
+            if (supportedTypes.Contains(underlyingType))
+                return;
+
+            var message =
+                string.Format(&quot;The underlying type of the type parameter {0} is {1}. &quot; +
+                              &quot;LcgEnumComparer only supports Enums with underlying type of &quot; +
+                              &quot;byte, sbyte, short, ushort, int, uint, long, or ulong.&quot;,
+                              typeof (TEnum), underlyingType);
+            throw new NotSupportedException(message);
+        }
+
+        /// &lt;summary&gt;
+        /// Generates a comparison method similiar to this:
+        /// &lt;code&gt;
+        /// bool Equals(TEnum x, TEnum y)
+        /// {
+        ///     return x == y;
+        /// }
+        /// &lt;/code&gt;
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;The generated method.&lt;/returns&gt;
+        private static Func&lt;TEnum, TEnum, bool&gt; generateEquals()
+        {
+            var method = new DynamicMethod(typeof (TEnum).Name + &quot;_Equals&quot;,
+                                           typeof (bool),
+                                           new[] {typeof (TEnum), typeof (TEnum)},
+                                           typeof (TEnum), true);
+            var generator = method.GetILGenerator();
+            // Writing body
+            generator.Emit(OpCodes.Ldarg_0);    // load x to stack
+            generator.Emit(OpCodes.Ldarg_1);    // load y to stack
+            generator.Emit(OpCodes.Ceq);        // x == y
+            generator.Emit(OpCodes.Ret);        // return result
+
+            return (Func&lt;TEnum, TEnum, bool&gt;)method.CreateDelegate(typeof(Func&lt;TEnum, TEnum, bool&gt;));
+        }
+
+        /// &lt;summary&gt;
+        /// Generates a GetHashCode method similar to this:
+        /// &lt;code&gt;
+        /// int GetHashCode(TEnum obj)
+        /// {
+        ///     return ((int)obj).GetHashCode();
+        /// }
+        /// &lt;/code&gt;
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;The generated method.&lt;/returns&gt;
+        private static Func&lt;TEnum, int&gt; generateGetHashCode()
+        {
+            var method = new DynamicMethod(typeof (TEnum).Name + &quot;_GetHashCode&quot;,
+                                           typeof (int),
+                                           new[] {typeof (TEnum)},
+                                           typeof (TEnum), true);
+            var generator = method.GetILGenerator();
+
+            var underlyingType = Enum.GetUnderlyingType(typeof (TEnum));
+            var getHashCodeMethod = underlyingType.GetMethod(&quot;GetHashCode&quot;);
+
+            var castValue =  generator.DeclareLocal(underlyingType);
+            // Writing body
+            generator.Emit(OpCodes.Ldarg_0);                    // load obj to stack
+            generator.Emit(OpCodes.Stloc_0);                    // castValue = obj
+            generator.Emit(OpCodes.Ldloca_S, castValue);        // load *castValue to stack
+            generator.Emit(OpCodes.Call, getHashCodeMethod);    // castValue.GetHashCode()
+            generator.Emit(OpCodes.Ret);                        // return result
+            return (Func&lt;TEnum, int&gt;)method.CreateDelegate(typeof(Func&lt;TEnum, int&gt;));
+        }
+    }
+</PRE>
+<P>This solution is both fast and generic. But can it be better?</P>
+<P>As reader Simone Busoli kindly pointed out, it can.</P>
+<H2>Third Time's the Charm</H2>
+<P>LCG is a great code-generation technique, but .Net 3.5 &amp; C#3 introduced a 
+new and improved method: <b>Expression Trees</b>. Basically they are hierarchies that 
+represents expressions. To generate code, you can build an Expression Tree at 
+runtime, and compile it to a delegate. Since an Expression Tree is composed of 
+objects, it is easier to build and maintain than manipulating IL in a <CODE>DynamicMethod</CODE>. 
+A good primer on this can be found 
+<A title="Lambda Expressions and Expression Trees: An Introduction" 
+href="http://www.codeproject.com/KB/cs/lambdaexpressions.aspx">here</A>.
+</P>
+<P>So, how can we implement our <CODE>EnumComparer</CODE> using Expression Trees?
+Here is the new implementation for our <CODE>generateEquals()</CODE> and 
+<CODE>generateGetHashCode()</CODE> methods:</P>
+<PRE lang=cs>
+        private static Func&lt;TEnum, TEnum, bool&gt; generateEquals()
+        {
+            var xParam = Expression.Parameter(typeof(TEnum), "x");
+            var yParam = Expression.Parameter(typeof(TEnum), "y");
+            var equalExpression = Expression.Equal(xParam, yParam);
+            return Expression.Lambda&lt;Func&lt;TEnum, TEnum, bool&gt;&gt;(equalExpression, new[] { xParam, yParam }).Compile();
+        }
+
+        private static Func&lt;TEnum, int&gt; generateGetHashCode()
+        {
+            var objParam = Expression.Parameter(typeof(TEnum), "obj");
+            var underlyingType = Enum.GetUnderlyingType(typeof (TEnum));
+            var convertExpression = Expression.Convert(objParam, underlyingType);
+            var getHashCodeMethod = underlyingType.GetMethod("GetHashCode");
+            var getHashCodeExpression = Expression.Call(convertExpression, getHashCodeMethod);
+            return Expression.Lambda&lt;Func&lt;TEnum, int&gt;&gt;(getHashCodeExpression, new[] { objParam }).Compile();
+        }
+</PRE>
+<P>Note that if you have to use .Net 2.0 in your project, you can only use the LCG version.</P>
+<H2>Using the Code</H2>
+<P>To use the <CODE>EnumComparer</CODE>, you just have to pass it to the 
+<CODE>Dictionary</CODE>: </P><PRE lang=cs>var comparer = EnumComparer&lt;DayOfWeek&gt;.Instance;
+var dictionary = new Dictionary&lt;DayOfWeek, int&gt;(comparer);</PRE>
+<H2>Benchmark</H2>
+<P>This article wouldn't be complete without some numbers, would it?</P>
+<P>I tested both implementations of the <CODE>EnumComparer</CODE> against a hand-written comparer, the 
+default comparer, and a <CODE>Dictionary</CODE> of <CODE>int</CODE>s. I ran 1,000,000 iterations on a 
+<CODE>dictionary</CODE> and the results were promising:</P><IMG alt="Benchmark Results (add)" hspace=0 
+src="EnumComparer/Benchmark.Add.jpg" 
+align=baseline border=0> 
+<P>Both generic <CODE>EnumComparer</CODE>s are almost as good as the hand-written 
+comparer! And the Expression Tree version is not only clearer, but even faster than 
+the LCG version.</P>
+<P>As a side note, I have to wonder <B>why</B> it is faster. I know that Expression Trees 
+are using LCG for compilation. So I wonder how could it generate faster code? If 
+you can figure out why, I'd love if you write add a comment.</P>
+<P>What about the cost of generating the code at the initial build phase? Let's have a look:</P><IMG alt="Benchmark Results (build)" hspace=0 
+src="EnumComparer/Benchmark.Build.jpg" 
+align=baseline border=0>
+<P>Here both are much slower to build than the hand-written comparer (simple class 
+construction). So you should consider using this solution only when you're expecting 
+to do lots of comparisons (tens of thousands).</P>
+<P>(<b>Note:</b> When first wrote the article, my tests showed that the generic 
+<CODE>EnumComparer</CODE> was slightly faster than the hand-written one. However, when I approached the 
+benchmarks again, the hand-written comparer turned out to be faster. I don't know 
+why the results changed, but now the attached file includes the full benchmarking code, 
+    and you could 
+test it yourself.)</P>
+<H2>Afterthoughts</H2>
+<P>The performance problem of the <CODE>Dictionary</CODE> surprised me when I first learnt of it.
+And the fact that the trivial solution of a generic comparer is not so easy to build gave me that special 
+itch that I had to scratch. So I sat down, and hammered the keyboard until an elegant solution emerged.</P>
+<P>But then a new question popped to mind: When should this solution be used?</P>
+<P>My first answer was: "Probably never". The reason is that it would likely be 
+premature/micro-optimization. As you should know, optimization should be done only when you have real 
+knowledge about where your bottlenecks are.</P>
+<P>After I first published the article I found that some real-world usage might see the light of 
+day: Ayende <A title="Dictionary&lt;Enum,T&gt; Puzzler" 
+href="http://ayende.com/Blog/archive/2009/02/21/dictionaryltenumtgt-puzzler.aspx">blogged</A> 
+about a real performance problem in NHibernate that could be remedied by this solution. So 
+    maybe it&#39;s not as useless as I thought. :-) </P>
+<P>Another good outcome from publishing the article was Simon Busoli's comment about improving my 
+solution using Expression Trees. This made me quite happy, so I decided to update the article.</P>
+<P>To conclude, I hope you enjoyed reading this as much as I enjoyed writing it. An who knows? 
+You might even find this useful.</P>
+<H2>Sample Project</H2>
+<P>The solution contains 3 projects:</P>
+<OL>
+  <LI>The code shown here </LI> 
+  <LI>Unit-tests </LI>
+  <LI>Benchmarks </LI></OL>
+<H2>References</H2>
+<UL>
+  <LI>[1] Stojkovic, Vojislav. .NUTS: Enum Conundrum. [online] <A 
+  href="http://beardseye.blogspot.com/2007/08/nuts-enum-conundrum.html">http://beardseye.blogspot.com/2007/08/nuts-enum-conundrum.html</A> 
+  </LI></UL>
+<H2>History</H2>
+<UL>
+  <LI>20<SUP>th</SUP> February, 2009: Initial post </LI>
+  <LI>4<SUP>th</SUP> March, 2009: Added improved version using Expression Trees </LI>
+</UL></SPAN></DIV></BODY></HTML>
