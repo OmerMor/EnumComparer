@@ -15,4 +15,15 @@ namespace SitraUtils.Benchmarks
             return (int)obj;
         }
     }
+
+    public enum DayOfWeek : uint
+    {
+        Sunday = System.DayOfWeek.Sunday,
+        Monday = System.DayOfWeek.Monday,
+        Tuesday = System.DayOfWeek.Tuesday,
+        Wednesday = System.DayOfWeek.Wednesday,
+        Thrusday = System.DayOfWeek.Thursday,
+        Friday = System.DayOfWeek.Friday,
+        Saturday = System.DayOfWeek.Saturday,
+    }
 }

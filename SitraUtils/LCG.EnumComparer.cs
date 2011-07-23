@@ -400,7 +400,7 @@ namespace SitraUtils.LCG
             var method = new DynamicMethod(typeof(TEnum).Name + "_GetHashCode",
                                            typeof(int),
                                            new[] { typeof(EnumComparer2<TEnum>), typeof(TEnum) },
-                                           true);
+                                           typeof(EnumComparer<TEnum>), true);
             var generator = method.GetILGenerator();
 
             var underlyingType = Enum.GetUnderlyingType(typeof(TEnum));
