@@ -10,7 +10,7 @@ namespace SitraUtils.Benchmarks
     public class EnumComparerBenchmarks
     {
         const int MAX_DAY_OF_WEEK = (int)DayOfWeek.Saturday;
-        private static int iterations = 1000000;
+        private static int iterations = 100000;
 
         public static void MainX()
         {
