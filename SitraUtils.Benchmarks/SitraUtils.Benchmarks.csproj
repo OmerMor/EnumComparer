@@ -57,7 +57,7 @@
   <ItemGroup>
     <Reference Include="BenchmarkHelper, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\tools\BenchmarkHelper\BenchmarkHelper.dll</HintPath>
+      <HintPath>..\packages\BenchmarkHelper\BenchmarkHelper.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core">
