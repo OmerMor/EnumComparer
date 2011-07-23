@@ -1,6 +1,6 @@
 ﻿
-Microsoft Visual Studio Solution File, Format Version 10.00
-# Visual Studio 2008
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SitraUtils", "SitraUtils\SitraUtils.csproj", "{395812AB-53D1-490D-9682-94875B774A54}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SitraUtils.UnitTests", "SitraUtils.UnitTests\SitraUtils.UnitTests.csproj", "{580E259A-0D8F-4490-847E-62A503A8A1FE}"
