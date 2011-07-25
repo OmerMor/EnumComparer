@@ -258,7 +258,7 @@ namespace SitraUtils.UnitTests
         }
 
         [Test]
-        public void t()
+        public void Test_flagged_enum()
         {
             var enumComparer = getEnumComparer<FlaggedEnum>();
             FlaggedEnum[] edgeValues = {0, FlaggedEnum.One, FlaggedEnum.Two, FlaggedEnum.One | FlaggedEnum.Two};

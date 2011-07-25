@@ -98,7 +98,8 @@ namespace SitraUtils
         /// </returns>
         public int Compare(TEnum x, TEnum y)
         {
-            throw new NotImplementedException();
+            // call the generated method
+            return compare(x, y);
         }
 
         private static void assertTypeIsEnum()
